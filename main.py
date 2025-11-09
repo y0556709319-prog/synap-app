@@ -1,67 +1,87 @@
 from nicegui import ui
-import sqlite3
+import psycopg2
+import os
 
-# יצירת טבלת משקיעים אם לא קיימת
-def init_db():
-    conn = sqlite3.connect('data.db')
-    conn.execute('''CREATE TABLE IF NOT EXISTS investors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        capital REAL,
-        interest REAL,
-        status TEXT
-    )''')
-    conn.close()
+# ==============================
+# 🔗 הגדרת חיבור ל-PostgreSQL
+# ==============================
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-def add_investor(name, capital, interest, status):
-    conn = sqlite3.connect('data.db')
-    conn.execute(
-        'INSERT INTO investors (name, capital, interest, status) VALUES (?, ?, ?, ?)',
-        (name, capital, interest, status),
+conn = psycopg2.connect(DATABASE_URL)
+cur = conn.cursor()
+
+# יצירת טבלה אם לא קיימת
+cur.execute("""
+CREATE TABLE IF NOT EXISTS investors (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    interest NUMERIC,
+    status TEXT
+)
+""")
+conn.commit()
+
+
+# ==============================
+# 💡 פונקציות עזר
+# ==============================
+def get_investors():
+    cur.execute("SELECT id, name, amount, interest, status FROM investors ORDER BY id")
+    return cur.fetchall()
+
+
+def add_investor(name, amount, interest, status):
+    cur.execute(
+        "INSERT INTO investors (name, amount, interest, status) VALUES (%s, %s, %s, %s)",
+        (name, amount, interest, status)
     )
     conn.commit()
-    conn.close()
-    ui.notify(f"נוסף משקיע: {name}")
 
-def get_investors():
-    conn = sqlite3.connect('data.db')
-    cursor = conn.execute('SELECT * FROM investors ORDER BY id DESC')
-    data = cursor.fetchall()
-    conn.close()
-    return data
 
-init_db()
+# ==============================
+# 🖥️ ממשק משתמש
+# ==============================
+ui.label('📊 מערכת ניהול השקעות - Synap').classes('text-3xl text-bold text-center mt-8')
 
-# UI
-ui.label('📊 מערכת ניהול השקעות - Synap').classes('text-2xl text-bold mt-4')
+with ui.card().classes('mx-auto mt-6 p-6 w-3/4'):
+    ui.label('➕ הוספת משקיע חדש').classes('text-xl text-bold mb-2')
 
-with ui.row():
     name = ui.input('שם משקיע')
-    capital = ui.number('סכום השקעה')
-    interest = ui.number('ריבית נומינלית (%)')
+    amount = ui.number('יתרת קרן', value=0)
+    interest = ui.number('ריבית ממוצעת (%)', value=0)
     status = ui.select(['פעיל', 'ממתין', 'סגור'], label='סטטוס')
-ui.button('הוסף משקיע', on_click=lambda: add_investor(name.value, capital.value, interest.value, status.value))
+
+    def on_submit():
+        add_investor(name.value, amount.value, interest.value, status.value)
+        ui.notify(f'נוסף משקיע: {name.value}')
+        refresh_table()
+
+    ui.button('הוסף משקיע', on_click=on_submit).classes('bg-green-600 text-white mt-2')
 
 ui.separator()
 
-with ui.card().classes('mt-4 w-full'):
-    ui.label('רשימת משקיעים').classes('text-xl text-bold mb-2')
+# ==============================
+# 📋 טבלת משקיעים
+# ==============================
+table = ui.table({
+    'id': 'מזהה',
+    'name': 'שם משקיע',
+    'amount': 'יתרת קרן',
+    'interest': 'ריבית ממוצעת (%)',
+    'status': 'סטטוס'
+}, rows=[]).classes('w-3/4 mx-auto mt-8')
 
-    def refresh_table():
-        table.rows = get_investors()
 
-    table = ui.table(
-        columns=[
-            {'name': 'id', 'label': 'מזהה', 'field': 'id'},
-            {'name': 'name', 'label': 'שם משקיע', 'field': 'name'},
-            {'name': 'capital', 'label': 'סכום השקעה', 'field': 'capital'},
-            {'name': 'interest', 'label': 'ריבית (%)', 'field': 'interest'},
-            {'name': 'status', 'label': 'סטטוס', 'field': 'status'},
-        ],
-        rows=get_investors(),
-        row_key='id',
-    ).classes('w-full')
+def refresh_table():
+    data = get_investors()
+    table.rows = [{'id': r[0], 'name': r[1], 'amount': r[2], 'interest': r[3], 'status': r[4]} for r in data]
+    table.update()
 
-    ui.button('רענן רשימה', on_click=refresh_table).classes('mt-2')
 
+refresh_table()
+
+# ==============================
+# 🚀 הרצת השרת
+# ==============================
 ui.run(host='0.0.0.0', port=8080)

@@ -1,6 +1,4 @@
 streamlit
 pandas
-sqlite-utils
-psycopg2-binary
 nicegui
-
+psycopg2-binary
