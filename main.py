@@ -1,31 +1,67 @@
-import streamlit as st
-import pandas as pd
-import db
+from nicegui import ui
+import sqlite3
 
-st.set_page_config(page_title="Synap - מערכת ניהול השקעות", layout="wide")
-st.title("📊 מערכת ניהול השקעות - Synap")
+# יצירת טבלת משקיעים אם לא קיימת
+def init_db():
+    conn = sqlite3.connect('data.db')
+    conn.execute('''CREATE TABLE IF NOT EXISTS investors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        capital REAL,
+        interest REAL,
+        status TEXT
+    )''')
+    conn.close()
 
-# אתחול בסיס הנתונים
-db.init_db()
+def add_investor(name, capital, interest, status):
+    conn = sqlite3.connect('data.db')
+    conn.execute(
+        'INSERT INTO investors (name, capital, interest, status) VALUES (?, ?, ?, ?)',
+        (name, capital, interest, status),
+    )
+    conn.commit()
+    conn.close()
+    ui.notify(f"נוסף משקיע: {name}")
 
-# --- טופס הוספת משקיע ---
-st.subheader("➕ הוסף משקיע חדש")
+def get_investors():
+    conn = sqlite3.connect('data.db')
+    cursor = conn.execute('SELECT * FROM investors ORDER BY id DESC')
+    data = cursor.fetchall()
+    conn.close()
+    return data
 
-with st.form("add_investor_form"):
-    name = st.text_input("שם משקיע")
-    capital = st.number_input("יתרת קרן (₪)", min_value=0.0, step=1000.0)
-    interest = st.number_input("ריבית נומינלית (%)", min_value=0.0, step=0.1)
-    status = st.selectbox("סטטוס", ["פעיל", "ממתין", "סגור"])
-    submitted = st.form_submit_button("שמור")
+init_db()
 
-    if submitted:
-        if name:
-            db.add_investor(name, capital, interest, status)
-            st.success(f"המשקיע {name} נוסף בהצלחה!")
-        else:
-            st.warning("אנא הזיני שם משקיע לפני השמירה.")
+# UI
+ui.label('📊 מערכת ניהול השקעות - Synap').classes('text-2xl text-bold mt-4')
 
-# --- הצגת רשימת משקיעים ---
-st.subheader("📋 רשימת משקיעים")
-investors = db.get_investors()
-st.dataframe(investors, use_container_width=True)
+with ui.row():
+    name = ui.input('שם משקיע')
+    capital = ui.number('סכום השקעה')
+    interest = ui.number('ריבית נומינלית (%)')
+    status = ui.select(['פעיל', 'ממתין', 'סגור'], label='סטטוס')
+ui.button('הוסף משקיע', on_click=lambda: add_investor(name.value, capital.value, interest.value, status.value))
+
+ui.separator()
+
+with ui.card().classes('mt-4 w-full'):
+    ui.label('רשימת משקיעים').classes('text-xl text-bold mb-2')
+
+    def refresh_table():
+        table.rows = get_investors()
+
+    table = ui.table(
+        columns=[
+            {'name': 'id', 'label': 'מזהה', 'field': 'id'},
+            {'name': 'name', 'label': 'שם משקיע', 'field': 'name'},
+            {'name': 'capital', 'label': 'סכום השקעה', 'field': 'capital'},
+            {'name': 'interest', 'label': 'ריבית (%)', 'field': 'interest'},
+            {'name': 'status', 'label': 'סטטוס', 'field': 'status'},
+        ],
+        rows=get_investors(),
+        row_key='id',
+    ).classes('w-full')
+
+    ui.button('רענן רשימה', on_click=refresh_table).classes('mt-2')
+
+ui.run(host='0.0.0.0', port=8080)
